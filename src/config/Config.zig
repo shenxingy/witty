@@ -1742,6 +1742,27 @@ class: ?[:0]const u8 = null,
 ///
 ///    Available since: 1.1.0
 ///
+///  * `altscreen:`
+///
+///    Only match the keybind while the terminal is showing the alternate
+///    screen. Full-screen terminal applications such as tmux, vim, or
+///    less enable the alternate screen; a shell prompt normally runs on
+///    the primary screen. While the primary screen is active, Ghostty
+///    behaves as if the keybind was not set and the input is processed
+///    normally.
+///
+///    This is useful to send multiplexer control sequences only when a
+///    multiplexer is plausibly running. For example,
+///    `altscreen:cmd+d=text:\x01|` sends the tmux "split" sequence
+///    (Ctrl-A then a pipe) while tmux is in the foreground, but leaves
+///    `cmd+d` untouched in a plain shell prompt.
+///
+///    Note that the trigger still has a single binding: prefixing a
+///    trigger with `altscreen:` replaces any previous binding for that
+///    trigger, including default keybinds, on both screens.
+///
+///    Available since: unreleased
+///
 /// Keybind triggers are not unique per prefix combination. For example,
 /// `ctrl+a` and `global:ctrl+a` are not two separate keybinds. The keybind
 /// set later will overwrite the keybind set earlier. In this case, the

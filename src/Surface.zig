@@ -2638,10 +2638,25 @@ pub fn keyEventIsBinding(
     };
 
     // Return flags based on the
-    return switch (entry.value_ptr.*) {
+    const flags: input.Binding.Flags = switch (entry.value_ptr.*) {
         .leader => .{},
         inline .leaf, .leaf_chained => |v| v.flags,
     };
+
+    // Altscreen-gated bindings only exist while the alternate screen
+    // is active. This must match the behavior in maybeHandleBinding.
+    if (flags.altscreen and !self.terminalIsAltScreen()) return null;
+
+    return flags;
+}
+
+/// Returns true if the terminal for this surface is currently showing
+/// the alternate screen (used by full-screen terminal applications
+/// such as tmux, vim, or less).
+fn terminalIsAltScreen(self: *Surface) bool {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.io.terminal.screens.active_key == .alternate;
 }
 
 /// Called for any key events. This handles keybindings, encoding and
@@ -2951,6 +2966,16 @@ fn maybeHandleBinding(
 
         inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
+
+    // If this binding is gated on the alternate screen and the primary
+    // screen is active, we act as though the binding doesn't exist:
+    // the key event falls through to normal encoding. If we're in a
+    // sequence, this also flushes any queued events and resets the
+    // sequence, identical to the performable fallthrough below.
+    if (leaf.flags.altscreen and !self.terminalIsAltScreen()) {
+        self.endKeySequence(.flush, .retain);
+        return null;
+    }
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).

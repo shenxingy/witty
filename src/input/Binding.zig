@@ -47,6 +47,13 @@ pub const Flags = packed struct {
     /// if it doesn't exist.
     performable: bool = false,
 
+    /// True if this binding should only match while the terminal is
+    /// showing the alternate screen. Full-screen terminal applications
+    /// such as tmux, vim, or less typically enable the alternate screen.
+    /// While the primary screen is active, the binding acts as if it
+    /// doesn't exist.
+    altscreen: bool = false,
+
     /// C type
     pub const C = u8;
 
@@ -65,6 +72,7 @@ pub const Flags = packed struct {
         try testing.expectEqual(@as(u8, 0b0011), (Flags{ .all = true }).cval());
         try testing.expectEqual(@as(u8, 0b0101), (Flags{ .global = true }).cval());
         try testing.expectEqual(@as(u8, 0b1001), (Flags{ .performable = true }).cval());
+        try testing.expectEqual(@as(u8, 0b10001), (Flags{ .altscreen = true }).cval());
         try testing.expectEqual(@as(u8, 0b1111), (Flags{ .consumed = true, .all = true, .global = true, .performable = true }).cval());
     }
 };
@@ -168,6 +176,9 @@ pub const Parser = struct {
             } else if (std.mem.eql(u8, prefix, "performable")) {
                 if (flags.performable) return Error.InvalidFormat;
                 flags.performable = true;
+            } else if (std.mem.eql(u8, prefix, "altscreen")) {
+                if (flags.altscreen) return Error.InvalidFormat;
+                flags.altscreen = true;
             } else {
                 // If we don't recognize the prefix then we're done. We
                 // let any unknown prefix fallthrough to trigger-specific
@@ -2935,6 +2946,29 @@ test "parse: triggers" {
         .action = .{ .ignore = {} },
         .flags = .{ .performable = true },
     }, try parseSingle("performable:shift+a=ignore"));
+
+    // altscreen keys
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{ .shift = true },
+            .key = .{ .unicode = 'a' },
+        },
+        .action = .{ .ignore = {} },
+        .flags = .{ .altscreen = true },
+    }, try parseSingle("altscreen:shift+a=ignore"));
+
+    // altscreen composed with other flags
+    try testing.expectEqual(Binding{
+        .trigger = .{
+            .mods = .{ .shift = true },
+            .key = .{ .unicode = 'a' },
+        },
+        .action = .{ .ignore = {} },
+        .flags = .{ .altscreen = true, .consumed = false },
+    }, try parseSingle("unconsumed:altscreen:shift+a=ignore"));
+
+    // repeated altscreen prefix is invalid
+    try testing.expectError(Error.InvalidFormat, parseSingle("altscreen:altscreen:shift+a=ignore"));
 
     // invalid key
     try testing.expectError(Error.InvalidFormat, parseSingle("foo=ignore"));
