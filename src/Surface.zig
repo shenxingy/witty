@@ -2630,7 +2630,7 @@ pub fn keyEventIsBinding(
         const table_items = self.keyboard.table_stack.items;
         for (0..table_items.len) |i| {
             const rev_i: usize = table_items.len - 1 - i;
-            const table_set = &table_items[rev_i].set;
+            const table_set = table_items[rev_i].set;
             if (table_set.getEvent(event)) |v| {
                 if (self.resolveAltscreenGate(table_set, v, event)) |resolved| {
                     break :entry resolved;
@@ -2951,7 +2951,7 @@ fn maybeHandleBinding(
                     // An altscreen-gated entry may resolve to its fallback
                     // or to nothing; in the latter case we keep searching
                     // outer tables and the root set.
-                    if (self.resolveAltscreenGate(&table.set, v, event)) |resolved| {
+                    if (self.resolveAltscreenGate(table.set, v, event)) |resolved| {
                         // If this is a one-shot activation AND its the currently
                         // active table, then we deactivate it after this.
                         // Note: we may want to change the semantics here to
