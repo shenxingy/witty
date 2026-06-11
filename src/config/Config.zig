@@ -1744,22 +1744,28 @@ class: ?[:0]const u8 = null,
 ///
 ///  * `altscreen:`
 ///
-///    Only match the keybind while the terminal is showing the alternate
+///    Match the keybind only while the terminal is showing the alternate
 ///    screen. Full-screen terminal applications such as tmux, vim, or
 ///    less enable the alternate screen; a shell prompt normally runs on
-///    the primary screen. While the primary screen is active, Ghostty
-///    behaves as if the keybind was not set and the input is processed
-///    normally.
+///    the primary screen.
 ///
-///    This is useful to send multiplexer control sequences only when a
-///    multiplexer is plausibly running. For example,
-///    `altscreen:cmd+d=text:\x01|` sends the tmux "split" sequence
-///    (Ctrl-A then a pipe) while tmux is in the foreground, but leaves
-///    `cmd+d` untouched in a plain shell prompt.
+///    While the primary screen is active, the keybind falls back to
+///    whatever binding was previously assigned to the same trigger,
+///    such as the default keybind, so the original behavior of the key
+///    is preserved. If there was no previous binding, Ghostty behaves
+///    as if the keybind was not set. This is the conditional
+///    pass-through pattern used by tmux/vim navigation integrations:
+///    send the multiplexer sequence when a full-screen app is in
+///    control, otherwise act natively.
 ///
-///    Note that the trigger still has a single binding: prefixing a
-///    trigger with `altscreen:` replaces any previous binding for that
-///    trigger, including default keybinds, on both screens.
+///    For example, with `altscreen:cmd+d=text:\x01|`, pressing `cmd+d`
+///    inside tmux sends the tmux split sequence (Ctrl-A then a pipe),
+///    while at a plain shell prompt it performs the default `cmd+d`
+///    action (`new_split:right` on macOS).
+///
+///    Like `performable:`, altscreen keybinds are not registered as
+///    menu shortcuts, since a menu shortcut would bypass the screen
+///    check.
 ///
 ///    Available since: unreleased
 ///

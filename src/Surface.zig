@@ -2621,33 +2621,57 @@ pub fn keyEventIsBinding(
     const entry: input.Binding.Set.Entry = entry: {
         // If we're in a sequence, check the sequence set
         if (self.keyboard.sequence_set) |set| {
-            break :entry set.getEvent(event) orelse return null;
+            const v = set.getEvent(event) orelse return null;
+            break :entry self.resolveAltscreenGate(set, v, event) orelse
+                return null;
         }
 
         // Check active key tables (inner-most to outer-most)
         const table_items = self.keyboard.table_stack.items;
         for (0..table_items.len) |i| {
             const rev_i: usize = table_items.len - 1 - i;
-            if (table_items[rev_i].set.getEvent(event)) |entry| {
-                break :entry entry;
+            const table_set = &table_items[rev_i].set;
+            if (table_set.getEvent(event)) |v| {
+                if (self.resolveAltscreenGate(table_set, v, event)) |resolved| {
+                    break :entry resolved;
+                }
             }
         }
 
         // Check the root set
-        break :entry self.config.keybind.set.getEvent(event) orelse return null;
+        const root_set = &self.config.keybind.set;
+        const v = root_set.getEvent(event) orelse return null;
+        break :entry self.resolveAltscreenGate(root_set, v, event) orelse
+            return null;
     };
 
     // Return flags based on the
-    const flags: input.Binding.Flags = switch (entry.value_ptr.*) {
+    return switch (entry.value_ptr.*) {
         .leader => .{},
         inline .leaf, .leaf_chained => |v| v.flags,
     };
+}
 
-    // Altscreen-gated bindings only exist while the alternate screen
-    // is active. This must match the behavior in maybeHandleBinding.
-    if (flags.altscreen and !self.terminalIsAltScreen()) return null;
-
-    return flags;
+/// Resolve a binding entry that may be gated on the alternate screen.
+/// If the entry requires the alternate screen and the primary screen
+/// is active, this returns the fallback binding stored for the trigger
+/// (the binding it replaced, e.g. the default), or null if there is
+/// none. This implements conditional dispatch with a native fallback:
+/// the same pass-through-or-act pattern used by tmux/vim navigation
+/// integrations.
+fn resolveAltscreenGate(
+    self: *Surface,
+    set: *const input.Binding.Set,
+    entry: input.Binding.Set.Entry,
+    event: input.KeyEvent,
+) ?input.Binding.Set.Entry {
+    const flags: input.Binding.Flags = switch (entry.value_ptr.*) {
+        .leader => return entry,
+        inline .leaf, .leaf_chained => |v| v.flags,
+    };
+    if (!flags.altscreen) return entry;
+    if (self.terminalIsAltScreen()) return entry;
+    return set.getFallbackEvent(event);
 }
 
 /// Returns true if the terminal for this surface is currently showing
@@ -2885,8 +2909,15 @@ fn maybeHandleBinding(
     const entry: input.Binding.Set.Entry = entry: {
         // Handle key sequences first.
         if (self.keyboard.sequence_set) |set| {
-            // Get our entry from the set for the given event.
-            if (set.getEvent(event)) |v| break :entry v;
+            // Get our entry from the set for the given event. An
+            // altscreen-gated entry may resolve to its fallback; if it
+            // resolves to nothing we treat the key like one that isn't
+            // part of the sequence (the miss path below).
+            if (set.getEvent(event)) |v| {
+                if (self.resolveAltscreenGate(set, v, event)) |resolved| {
+                    break :entry resolved;
+                }
+            }
 
             // No entry found. We need to encode everything up to this
             // point and send to the pty since we're in a sequence.
@@ -2917,22 +2948,30 @@ fn maybeHandleBinding(
                 const rev_i: usize = table_items.len - 1 - i;
                 const table = table_items[rev_i];
                 if (table.set.getEvent(event)) |v| {
-                    // If this is a one-shot activation AND its the currently
-                    // active table, then we deactivate it after this.
-                    // Note: we may want to change the semantics here to
-                    // remove this table no matter where it is in the stack,
-                    // maybe.
-                    if (table.once and i == 0) _ = try self.performBindingAction(
-                        .deactivate_key_table,
-                    );
+                    // An altscreen-gated entry may resolve to its fallback
+                    // or to nothing; in the latter case we keep searching
+                    // outer tables and the root set.
+                    if (self.resolveAltscreenGate(&table.set, v, event)) |resolved| {
+                        // If this is a one-shot activation AND its the currently
+                        // active table, then we deactivate it after this.
+                        // Note: we may want to change the semantics here to
+                        // remove this table no matter where it is in the stack,
+                        // maybe.
+                        if (table.once and i == 0) _ = try self.performBindingAction(
+                            .deactivate_key_table,
+                        );
 
-                    break :entry v;
+                        break :entry resolved;
+                    }
                 }
             }
         }
 
-        // No table, use our default set
-        break :entry self.config.keybind.set.getEvent(event) orelse
+        // No table, use our default set. An altscreen-gated binding may
+        // resolve to its fallback (or to nothing) on the primary screen.
+        const root_set = &self.config.keybind.set;
+        const root_entry = root_set.getEvent(event) orelse return null;
+        break :entry self.resolveAltscreenGate(root_set, root_entry, event) orelse
             return null;
     };
 
@@ -2966,16 +3005,6 @@ fn maybeHandleBinding(
 
         inline .leaf, .leaf_chained => |leaf| leaf.generic(),
     };
-
-    // If this binding is gated on the alternate screen and the primary
-    // screen is active, we act as though the binding doesn't exist:
-    // the key event falls through to normal encoding. If we're in a
-    // sequence, this also flushes any queued events and resets the
-    // sequence, identical to the performable fallthrough below.
-    if (leaf.flags.altscreen and !self.terminalIsAltScreen()) {
-        self.endKeySequence(.flush, .retain);
-        return null;
-    }
 
     // consumed determines if the input is consumed or if we continue
     // encoding the key (if we have a key to encode).

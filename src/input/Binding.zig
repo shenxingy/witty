@@ -2088,6 +2088,16 @@ pub const Set = struct {
     /// integration with GUI toolkits.
     reverse: ReverseMap = .{},
 
+    /// Bindings that were replaced by an `altscreen:`-prefixed binding
+    /// for the same trigger. While the primary screen is active, an
+    /// altscreen binding falls back to the entry stored here, preserving
+    /// the default (or earlier user-defined) behavior of the trigger.
+    /// This mirrors the conditional pass-through pattern used by
+    /// tmux/vim navigation integrations: send the multiplexer sequence
+    /// when a full-screen app is in control, otherwise act natively.
+    /// Only leaf and leaf_chained values are stored, never leaders.
+    fallbacks: HashMap = .{},
+
     /// The chain parent is the information necessary to attach a chained
     /// action to the proper location in our mapping. It tracks both the
     /// entry in the hashmap and the set it belongs to, which is needed
@@ -2298,8 +2308,17 @@ pub const Set = struct {
             .leaf => {},
         };
 
+        var fb_it = self.fallbacks.iterator();
+        while (fb_it.next()) |entry| switch (entry.value_ptr.*) {
+            // Leaders are never stored as fallbacks.
+            .leader => unreachable,
+            .leaf_chained => |*l| l.deinit(alloc),
+            .leaf => {},
+        };
+
         self.bindings.deinit(alloc);
         self.reverse.deinit(alloc);
+        self.fallbacks.deinit(alloc);
         self.* = undefined;
     }
 
@@ -2528,8 +2547,10 @@ pub const Set = struct {
 
         // This is true if we're going to track this entry as
         // a reverse mapping. There are certain scenarios we don't.
-        // See the reverse map docs for more information.
-        const track_reverse: bool = !flags.performable;
+        // See the reverse map docs for more information. Altscreen
+        // bindings are excluded for the same reason as performable:
+        // a GUI menu shortcut would bypass the runtime condition.
+        const track_reverse: bool = !flags.performable and !flags.altscreen;
 
         // No matter what our chained parent becomes invalid because
         // getOrPut invalidates pointers.
@@ -2556,23 +2577,44 @@ pub const Set = struct {
             },
 
             // If we have an existing binding for this trigger, we have to
-            // update the reverse mapping to remove the old action.
-            .leaf => if (track_reverse) {
-                const t_hash = t.hash();
-                for (0.., self.reverse.values()) |i, *value| {
-                    if (t_hash == value.hash()) {
-                        self.reverse.swapRemoveAt(i);
-                        break;
+            // update the reverse mapping to remove the old action. We also
+            // remove it when the new binding is altscreen-gated: the old
+            // action lives on as a fallback (below) but must not stay
+            // registered as a GUI menu shortcut, since the menu would
+            // bypass the screen check.
+            .leaf => |leaf| {
+                if (track_reverse or flags.altscreen) {
+                    const t_hash = t.hash();
+                    for (0.., self.reverse.values()) |i, *value| {
+                        if (t_hash == value.hash()) {
+                            self.reverse.swapRemoveAt(i);
+                            break;
+                        }
                     }
+                }
+
+                // An altscreen binding replacing a non-altscreen binding
+                // preserves the old binding as the primary-screen fallback.
+                if (flags.altscreen and !leaf.flags.altscreen) {
+                    try self.putFallback(alloc, t, .{ .leaf = leaf });
                 }
             },
 
             // Chained leaves aren't in the reverse mapping so we just
-            // clear it out.
+            // clear it out (or move it into the fallback map, see above).
             .leaf_chained => |*l| {
-                l.deinit(alloc);
+                if (flags.altscreen and !l.flags.altscreen) {
+                    try self.putFallback(alloc, t, .{ .leaf_chained = l.* });
+                } else {
+                    l.deinit(alloc);
+                }
             },
         };
+
+        // A non-altscreen binding fully replaces the trigger, including
+        // any fallback captured earlier. Re-binding the altscreen entry
+        // for a trigger keeps the original fallback in place.
+        if (!flags.altscreen) self.removeFallback(alloc, t);
 
         gop.value_ptr.* = .{ .leaf = .{
             .action = action,
@@ -2589,6 +2631,31 @@ pub const Set = struct {
         assert(self.chain_parent.?.key_ptr == gop.key_ptr);
         assert(self.chain_parent.?.value_ptr == gop.value_ptr);
         assert(self.chain_parent.?.value_ptr.* == .leaf);
+    }
+
+    /// Store a fallback value for a trigger, replacing (and cleaning up)
+    /// any previously stored fallback. See the `fallbacks` field docs.
+    fn putFallback(
+        self: *Set,
+        alloc: Allocator,
+        t: Trigger,
+        v: Value,
+    ) Allocator.Error!void {
+        assert(v != .leader);
+        self.removeFallback(alloc, t);
+        try self.fallbacks.put(alloc, t, v);
+    }
+
+    /// Remove the fallback for a trigger if one exists.
+    fn removeFallback(self: *Set, alloc: Allocator, t: Trigger) void {
+        const entry = self.fallbacks.getEntry(t) orelse return;
+        switch (entry.value_ptr.*) {
+            // Leaders are never stored as fallbacks.
+            .leader => unreachable,
+            .leaf => {},
+            .leaf_chained => |*l| l.deinit(alloc),
+        }
+        _ = self.fallbacks.swapRemove(t);
     }
 
     /// Append a chained action to the prior set action.
@@ -2666,11 +2733,22 @@ pub const Set = struct {
     ///   2. Unshifted Unicode codepoint (event.unshifted_codepoint)
     ///
     pub fn getEvent(self: *const Set, event: KeyEvent) ?Entry {
+        return getEventInMap(&self.bindings, event);
+    }
+
+    /// Like getEvent but searches the fallback map: bindings that were
+    /// replaced by an `altscreen:`-prefixed binding for the same trigger.
+    /// See the `fallbacks` field docs.
+    pub fn getFallbackEvent(self: *const Set, event: KeyEvent) ?Entry {
+        return getEventInMap(&self.fallbacks, event);
+    }
+
+    fn getEventInMap(map: *const HashMap, event: KeyEvent) ?Entry {
         var trigger: Trigger = .{
             .mods = event.mods.binding(),
             .key = .{ .physical = event.key },
         };
-        if (self.get(trigger)) |v| return v;
+        if (map.getEntry(trigger)) |v| return v;
 
         // If our UTF-8 text is exactly one codepoint, we try to match that.
         if (event.utf8.len > 0) unicode: {
@@ -2682,7 +2760,7 @@ pub const Set = struct {
             if (it.nextCodepoint() != null) break :unicode;
 
             trigger.key = .{ .unicode = cp };
-            if (self.get(trigger)) |v| return v;
+            if (map.getEntry(trigger)) |v| return v;
         }
 
         // Finally fallback to the full unshifted codepoint if we have one.
@@ -2691,15 +2769,15 @@ pub const Set = struct {
         // to verify this.
         if (event.unshifted_codepoint > 0) {
             trigger.key = .{ .unicode = event.unshifted_codepoint };
-            if (self.get(trigger)) |v| return v;
+            if (map.getEntry(trigger)) |v| return v;
         }
 
         // Fallback to catch_all with modifiers first, then without modifiers.
         trigger.key = .catch_all;
-        if (self.get(trigger)) |v| return v;
+        if (map.getEntry(trigger)) |v| return v;
         if (!trigger.mods.empty()) {
             trigger.mods = .{};
-            if (self.get(trigger)) |v| return v;
+            if (map.getEntry(trigger)) |v| return v;
         }
 
         return null;
@@ -2715,6 +2793,9 @@ pub const Set = struct {
         // finer grained but the way it is documented is that chaining
         // must happen directly after sets so this works.
         self.chain_parent = null;
+
+        // Removing a binding also removes any stored fallback for it.
+        self.removeFallback(alloc, t);
 
         var entry = self.bindings.get(t) orelse return;
         _ = self.bindings.swapRemove(t);
@@ -2795,7 +2876,18 @@ pub const Set = struct {
         var result: Set = .{
             .bindings = try self.bindings.clone(alloc),
             .reverse = try self.reverse.clone(alloc),
+            .fallbacks = try self.fallbacks.clone(alloc),
         };
+
+        // Deep clone fallback values (never leaders).
+        {
+            var it = result.fallbacks.iterator();
+            while (it.next()) |entry| switch (entry.value_ptr.*) {
+                .leaf => |*s| s.* = try s.clone(alloc),
+                .leaf_chained => |*s| s.* = try s.clone(alloc),
+                .leader => unreachable,
+            };
+        }
 
         // If we have any leaders we need to clone them.
         {
@@ -4913,4 +5005,112 @@ test "set: formatEntries leaf_chained with text action" {
         \\
     ;
     try testing.expectEqualStrings(expected, output.written());
+}
+
+test "set: altscreen binding preserves previous binding as fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "cmd+d=new_split:right");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+
+    const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
+
+    // The active binding is the altscreen-gated one.
+    {
+        const entry = s.get(t).?;
+        try testing.expect(entry.value_ptr.*.leaf.flags.altscreen);
+        try testing.expect(entry.value_ptr.*.leaf.action == .reload_config);
+    }
+
+    // The fallback holds the original binding.
+    {
+        const entry = s.fallbacks.getEntry(t).?;
+        try testing.expect(!entry.value_ptr.*.leaf.flags.altscreen);
+        try testing.expect(entry.value_ptr.*.leaf.action == .new_split);
+    }
+
+    // The original action must no longer be a reverse (menu) mapping.
+    try testing.expect(s.getTrigger(.{ .new_split = .right }) == null);
+}
+
+test "set: altscreen binding with no prior binding has no fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+
+    const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
+    try testing.expect(s.get(t) != null);
+    try testing.expect(s.fallbacks.getEntry(t) == null);
+}
+
+test "set: non-altscreen rebind clears fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "cmd+d=new_split:right");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+    try s.parseAndPut(alloc, "cmd+d=new_window");
+
+    const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
+    try testing.expect(s.get(t).?.value_ptr.*.leaf.action == .new_window);
+    try testing.expect(s.fallbacks.getEntry(t) == null);
+}
+
+test "set: altscreen rebind keeps the original fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "cmd+d=new_split:right");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=open_config");
+
+    const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
+    try testing.expect(s.get(t).?.value_ptr.*.leaf.action == .open_config);
+    try testing.expect(s.fallbacks.getEntry(t).?.value_ptr.*.leaf.action == .new_split);
+}
+
+test "set: unbind clears fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "cmd+d=new_split:right");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+    try s.parseAndPut(alloc, "cmd+d=unbind");
+
+    const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
+    try testing.expect(s.get(t) == null);
+    try testing.expect(s.fallbacks.getEntry(t) == null);
+}
+
+test "set: clone preserves fallbacks" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+    try s.parseAndPut(alloc, "cmd+d=new_split:right");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+
+    var c = try s.clone(alloc);
+    defer c.deinit(alloc);
+
+    const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
+    try testing.expect(c.fallbacks.getEntry(t).?.value_ptr.*.leaf.action == .new_split);
 }
