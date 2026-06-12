@@ -2733,22 +2733,27 @@ pub const Set = struct {
     ///   2. Unshifted Unicode codepoint (event.unshifted_codepoint)
     ///
     pub fn getEvent(self: *const Set, event: KeyEvent) ?Entry {
-        return getEventInMap(&self.bindings, event);
+        return self.getEventAltscreen(event, true);
     }
 
-    /// Like getEvent but searches the fallback map: bindings that were
-    /// replaced by an `altscreen:`-prefixed binding for the same trigger.
-    /// See the `fallbacks` field docs.
-    pub fn getFallbackEvent(self: *const Set, event: KeyEvent) ?Entry {
-        return getEventInMap(&self.fallbacks, event);
-    }
-
-    fn getEventInMap(map: *const HashMap, event: KeyEvent) ?Entry {
+    /// Like getEvent but `altscreen:`-prefixed bindings only match
+    /// while altscreen is true. While the primary screen is active a
+    /// gated binding acts as if it doesn't exist: its trigger resolves
+    /// to the binding it replaced (see the `fallbacks` field docs), if
+    /// any, and otherwise the search continues through the remaining
+    /// trigger forms. This matters when the gated binding and another
+    /// binding use different trigger forms for the same key, e.g. a
+    /// physical `equal` and a unicode `=`.
+    pub fn getEventAltscreen(
+        self: *const Set,
+        event: KeyEvent,
+        altscreen: bool,
+    ) ?Entry {
         var trigger: Trigger = .{
             .mods = event.mods.binding(),
             .key = .{ .physical = event.key },
         };
-        if (map.getEntry(trigger)) |v| return v;
+        if (self.getGated(trigger, altscreen)) |v| return v;
 
         // If our UTF-8 text is exactly one codepoint, we try to match that.
         if (event.utf8.len > 0) unicode: {
@@ -2760,7 +2765,7 @@ pub const Set = struct {
             if (it.nextCodepoint() != null) break :unicode;
 
             trigger.key = .{ .unicode = cp };
-            if (map.getEntry(trigger)) |v| return v;
+            if (self.getGated(trigger, altscreen)) |v| return v;
         }
 
         // Finally fallback to the full unshifted codepoint if we have one.
@@ -2769,18 +2774,31 @@ pub const Set = struct {
         // to verify this.
         if (event.unshifted_codepoint > 0) {
             trigger.key = .{ .unicode = event.unshifted_codepoint };
-            if (map.getEntry(trigger)) |v| return v;
+            if (self.getGated(trigger, altscreen)) |v| return v;
         }
 
         // Fallback to catch_all with modifiers first, then without modifiers.
         trigger.key = .catch_all;
-        if (map.getEntry(trigger)) |v| return v;
+        if (self.getGated(trigger, altscreen)) |v| return v;
         if (!trigger.mods.empty()) {
             trigger.mods = .{};
-            if (map.getEntry(trigger)) |v| return v;
+            if (self.getGated(trigger, altscreen)) |v| return v;
         }
 
         return null;
+    }
+
+    /// Look up a single trigger, honoring the altscreen gate. A gated
+    /// binding that doesn't match resolves to the binding it replaced
+    /// (the same precedence slot), or to nothing.
+    fn getGated(self: *const Set, t: Trigger, altscreen: bool) ?Entry {
+        const entry = self.bindings.getEntry(t) orelse return null;
+        const flags: Flags = switch (entry.value_ptr.*) {
+            .leader => return entry,
+            inline .leaf, .leaf_chained => |v| v.flags,
+        };
+        if (!flags.altscreen or altscreen) return entry;
+        return self.fallbacks.getEntry(t);
     }
 
     /// Remove a binding for a given trigger.
@@ -5113,4 +5131,94 @@ test "set: clone preserves fallbacks" {
 
     const t: Trigger = .{ .mods = .{ .super = true }, .key = .{ .unicode = 'd' } };
     try testing.expect(c.fallbacks.getEntry(t).?.value_ptr.*.leaf.action == .new_split);
+}
+
+test "set: getEventAltscreen resolves altscreen binding and its fallback" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "cmd+d=new_split:right");
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+
+    const event: KeyEvent = .{
+        .mods = .{ .super = true },
+        .utf8 = "d",
+        .unshifted_codepoint = 'd',
+    };
+
+    // Alternate screen active: the altscreen binding matches.
+    try testing.expect(
+        s.getEventAltscreen(event, true).?.value_ptr.*.leaf.action == .reload_config,
+    );
+
+    // Primary screen: the trigger resolves to the replaced binding.
+    try testing.expect(
+        s.getEventAltscreen(event, false).?.value_ptr.*.leaf.action == .new_split,
+    );
+
+    // The unconditional lookup behaves like the alternate screen.
+    try testing.expect(
+        s.getEvent(event).?.value_ptr.*.leaf.action == .reload_config,
+    );
+}
+
+test "set: getEventAltscreen continues past a gated physical binding to a unicode binding" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Default-style binding on the unicode codepoint, the way Config.zig
+    // registers ctrl+cmd+= for equalize_splits...
+    try s.put(
+        alloc,
+        .{ .key = .{ .unicode = '=' }, .mods = .{ .super = true, .ctrl = true } },
+        .{ .equalize_splits = {} },
+    );
+
+    // ...and a user altscreen binding spelled with the physical key
+    // name, which is a different trigger so no fallback is stored.
+    try s.parseAndPut(alloc, "altscreen:ctrl+cmd+equal=reload_config");
+
+    const event: KeyEvent = .{
+        .key = .equal,
+        .mods = .{ .super = true, .ctrl = true },
+        .utf8 = "=",
+        .unshifted_codepoint = '=',
+    };
+
+    // Alternate screen: the physical altscreen binding wins since
+    // physical triggers have higher precedence than unicode ones.
+    try testing.expect(
+        s.getEventAltscreen(event, true).?.value_ptr.*.leaf.action == .reload_config,
+    );
+
+    // Primary screen: the gated binding acts as if it doesn't exist and
+    // the search continues down to the unicode binding.
+    try testing.expect(
+        s.getEventAltscreen(event, false).?.value_ptr.*.leaf.action == .equalize_splits,
+    );
+}
+
+test "set: getEventAltscreen with no fallback acts unbound on primary screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    try s.parseAndPut(alloc, "altscreen:cmd+d=reload_config");
+
+    const event: KeyEvent = .{
+        .mods = .{ .super = true },
+        .utf8 = "d",
+        .unshifted_codepoint = 'd',
+    };
+
+    try testing.expect(s.getEventAltscreen(event, true) != null);
+    try testing.expect(s.getEventAltscreen(event, false) == null);
 }
