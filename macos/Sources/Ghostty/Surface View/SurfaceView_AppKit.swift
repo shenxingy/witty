@@ -1303,11 +1303,14 @@ extension Ghostty {
                 //   - We're not in a key sequence or table (those are separate bindings)
                 //   - The binding is NOT `all` (menu uses FirstResponder chain)
                 //   - The binding is NOT `performable` (menu will always consume)
+                //   - The binding is NOT `altscreen` (a menu shortcut left behind
+                //     by the replaced binding would bypass the screen gate and
+                //     hijack the key)
                 //   - The binding is `consumed` (unconsumed bindings should pass through
                 //     to the terminal, so we must not intercept them for the menu)
                 if keySequence.isEmpty,
                    keyTables.isEmpty,
-                   bindingFlags.isDisjoint(with: [.all, .performable]),
+                   bindingFlags.isDisjoint(with: [.all, .performable, .altscreen]),
                    bindingFlags.contains(.consumed) {
                     if let appDelegate = NSApp.delegate as? AppDelegate,
                        appDelegate.performGhosttyBindingMenuKeyEquivalent(with: event) {
