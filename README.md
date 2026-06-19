@@ -102,16 +102,21 @@ reconnectable view.
    running in it survive. Run the same command to reconnect and you're back
    exactly where you left off.
 
-2. **Split panes and run Claude Code per pane** — inside tmux:
+2. **Split panes and run Claude Code per pane** — split with witty's native
+   gestures, which keep working even while Claude or tmux owns the altscreen:
 
    ```
-   C-a |     split left/right
-   C-a -     split top/bottom
-   claude    run Claude Code in each pane
+   cmd+d         split right
+   cmd+shift+d   split down
+   cmd+ctrl+=    equalize panes
+   cmd+w         close the pane
    ```
 
-   Each pane is an independent agent you can glance across — and it all keeps
-   running server-side if you disconnect.
+   In each new pane, repeat the SSH + attach from step 1 with its own session
+   name (`agent2`, `agent3`, …) and run `claude`. Each pane is an independent
+   agent you can glance across — the split grid is local, so you rebuild it on
+   reconnect, but every agent keeps running server-side and re-attaching drops
+   you right back in.
 
 3. **Keep shortcuts consistent** — point tmux's pane keys at the same gestures
    you use in Ghostty, and let witty's altscreen bindings cover the keys tmux
