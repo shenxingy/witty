@@ -7150,7 +7150,7 @@ pub const Keybinds = struct {
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
-                .{ .text = "\x02E" },
+                .{ .text = "\\x02E" },
                 .{ .altscreen = true },
             );
 

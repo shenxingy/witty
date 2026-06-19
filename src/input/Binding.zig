@@ -5224,7 +5224,7 @@ test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary"
     try s.putFlags(
         alloc,
         .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
-        .{ .text = "\x02E" },
+        .{ .text = "\\x02E" },
         .{ .altscreen = true },
     );
 
@@ -5241,7 +5241,7 @@ test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary"
         const entry = s.getEventAltscreen(event, true).?;
         try testing.expect(entry.value_ptr.*.leaf.action == .text);
         try testing.expectEqualStrings(
-            "\x02E",
+            "\\x02E",
             entry.value_ptr.*.leaf.action.text,
         );
     }
