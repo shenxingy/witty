@@ -5252,6 +5252,48 @@ test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary"
     );
 }
 
+test "set: altscreen cmd+left sends Home (CSI H), falls back to C-a on primary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Mirrors the macOS natural-text-editing defaults: cmd+left sends C-a
+    // (start of line), with an altscreen override that sends Home (CSI H) so
+    // it survives a `C-a` tmux prefix that would otherwise swallow the C-a.
+    try s.put(
+        alloc,
+        .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true } },
+        .{ .text = "\\x01" },
+    );
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true } },
+        .{ .csi = "H" },
+        .{ .altscreen = true },
+    );
+
+    const event: KeyEvent = .{
+        .key = .arrow_left,
+        .mods = .{ .super = true },
+    };
+
+    // Alternate screen (tmux/TUI): Home (CSI H), independent of tmux prefix.
+    {
+        const entry = s.getEventAltscreen(event, true).?;
+        try testing.expect(entry.value_ptr.*.leaf.action == .csi);
+        try testing.expectEqualStrings("H", entry.value_ptr.*.leaf.action.csi);
+    }
+
+    // Primary screen: falls back to the C-a text binding.
+    {
+        const entry = s.getEventAltscreen(event, false).?;
+        try testing.expect(entry.value_ptr.*.leaf.action == .text);
+        try testing.expectEqualStrings("\\x01", entry.value_ptr.*.leaf.action.text);
+    }
+}
+
 test "set: getEventAltscreen with no fallback acts unbound on primary screen" {
     const testing = std.testing;
     const alloc = testing.allocator;

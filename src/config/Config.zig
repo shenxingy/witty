@@ -7240,6 +7240,20 @@ pub const Keybinds = struct {
                 .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true } },
                 .{ .text = "\\x01" },
             );
+            // On the alternate screen (tmux, vim, less, …) `cmd+left`'s
+            // C-a (0x01) collides with a `C-a` tmux prefix and is swallowed
+            // by tmux before it reaches the shell, so the cursor never jumps
+            // to the start of the line. Send Home (CSI H) there instead: it's
+            // independent of whatever tmux prefix is configured and is still
+            // "beginning of line" in readline/zle and most TUIs. On the
+            // primary screen this falls back to the C-a binding above (which
+            // is the most universal "start of line" at a bare shell).
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .arrow_left }, .mods = .{ .super = true } },
+                .{ .csi = "H" },
+                .{ .altscreen = true },
+            );
             try self.set.put(
                 alloc,
                 .{ .key = .{ .physical = .backspace }, .mods = .{ .super = true } },
