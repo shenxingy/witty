@@ -6,6 +6,18 @@ documented here. Upstream Ghostty changes are not duplicated; see
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`cmd+left` now jumps to the start of the line inside tmux.** It used to send
+  C-a (`0x01`), which collides with a `C-a` tmux prefix and gets swallowed
+  before reaching the shell. On the alternate screen it now sends Home
+  (`CSI H`), which is independent of whatever tmux prefix is configured and is
+  still "beginning of line" in readline/zle. On the primary screen it still
+  falls back to C-a. (`cmd+right`/`cmd+backspace`/`alt+left`/`alt+right` were
+  unaffected — they don't use the prefix byte.)
+
 ## [witty-v0.1.0] — 2026-06-19
 
 Forked from upstream Ghostty at `49a91815`.

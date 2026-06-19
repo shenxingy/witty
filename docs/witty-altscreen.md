@@ -14,6 +14,7 @@ caveats you should know.
 - [Fallback semantics](#fallback-semantics)
 - [The `cmd+ctrl+=` default](#the-cmdctrl-default)
 - [Why `C-b E` and not `:select-layout`](#why-c-b-e-and-not-select-layout)
+- [The `cmd+left` default](#the-cmdleft-default)
 - [Caveats](#caveats)
 - [Examples](#examples)
 
@@ -110,6 +111,33 @@ and `select-layout -E` preserves your split structure (rather than forcing a
 This was verified end-to-end against real tmux: feeding `\x02E` as one write to
 a real tmux client evens out 2-, 3-, and 4-pane layouts; the atomic
 command-prompt form does not.
+
+## The `cmd+left` default
+
+witty ships a second altscreen default (macOS) for "jump to the start of the
+line":
+
+```ini
+keybind = super+arrow_left=text:\x01          # primary screen: C-a
+keybind = altscreen:super+arrow_left=csi:H    # alternate screen: Home (CSI H)
+```
+
+The problem it solves: `cmd+left` normally sends **C-a** (`0x01`), which readline
+treats as beginning-of-line. But `C-a` is also a very common **tmux prefix**
+(`set -g prefix C-a`, screen-style). When tmux is running, your `cmd+left` C-a is
+intercepted by tmux as its prefix and never reaches the shell — so the cursor
+doesn't move (and the next key gets eaten as a tmux command).
+
+On the alternate screen witty instead sends **Home** (`CSI H` = `ESC [ H`).
+Unlike a control byte, Home isn't anybody's tmux prefix, so it passes straight
+through to the shell, where readline/zle still map it to beginning-of-line. On
+the primary screen (a bare shell) `cmd+left` keeps sending C-a, which is the most
+universally understood "start of line".
+
+This fix is **prefix-independent**: it works whether your tmux prefix is `C-a`,
+`C-b`, or anything else. (`cmd+right` = C-e, `cmd+backspace` = C-u, and the
+`alt+←/→` word motions don't use the prefix byte, so they already work in tmux
+and are left unchanged.)
 
 ## Caveats
 
