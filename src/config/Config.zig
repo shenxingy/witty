@@ -7121,6 +7121,26 @@ pub const Keybinds = struct {
                 .{ .key = .{ .unicode = '=' }, .mods = .{ .super = true, .ctrl = true } },
                 .{ .equalize_splits = {} },
             );
+            // On the alternate screen `equalize_splits` is a no-op for the
+            // common case of a single Ghostty surface running tmux: the
+            // real panes belong to tmux, which Ghostty can't resize. So on
+            // the alternate screen send tmux a command to even out its panes
+            // instead — the default prefix (C-b = 0x02), then the command
+            // prompt `:select-layout tiled` + Enter. The prefix is intercepted
+            // by tmux regardless of the foreground program in the pane.
+            //
+            // This is a separate, altscreen-gated trigger on the *physical*
+            // `=` key, so on the primary screen the lookup falls through to
+            // the unicode `=` binding above and still runs `equalize_splits`.
+            //
+            // NOTE: assumes tmux's default prefix C-b (change \x02 to \x01 for
+            // C-a). Fires on ANY alternate-screen app, not just tmux.
+            try self.set.putFlags(
+                alloc,
+                .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
+                .{ .text = "\x02:select-layout tiled\r" },
+                .{ .altscreen = true },
+            );
 
             // Jump to prompt, matches Terminal.app
             try self.set.put(

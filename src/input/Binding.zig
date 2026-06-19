@@ -5204,6 +5204,51 @@ test "set: getEventAltscreen continues past a gated physical binding to a unicod
     );
 }
 
+test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var s: Set = .{};
+    defer s.deinit(alloc);
+
+    // Mirrors the macOS defaults: the unicode `=` runs equalize_splits, and
+    // an altscreen-gated physical `=` sends tmux a layout-even-out sequence.
+    try s.put(
+        alloc,
+        .{ .key = .{ .unicode = '=' }, .mods = .{ .super = true, .ctrl = true } },
+        .{ .equalize_splits = {} },
+    );
+    try s.putFlags(
+        alloc,
+        .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
+        .{ .text = "\x02:select-layout tiled\r" },
+        .{ .altscreen = true },
+    );
+
+    const event: KeyEvent = .{
+        .key = .equal,
+        .mods = .{ .super = true, .ctrl = true },
+        .utf8 = "=",
+        .unshifted_codepoint = '=',
+    };
+
+    // Alternate screen (tmux): the physical altscreen binding wins and sends
+    // the even-out sequence to the pty.
+    {
+        const entry = s.getEventAltscreen(event, true).?;
+        try testing.expect(entry.value_ptr.*.leaf.action == .text);
+        try testing.expectEqualStrings(
+            "\x02:select-layout tiled\r",
+            entry.value_ptr.*.leaf.action.text,
+        );
+    }
+
+    // Primary screen: falls through to the unicode binding -> equalize_splits.
+    try testing.expect(
+        s.getEventAltscreen(event, false).?.value_ptr.*.leaf.action == .equalize_splits,
+    );
+}
+
 test "set: getEventAltscreen with no fallback acts unbound on primary screen" {
     const testing = std.testing;
     const alloc = testing.allocator;
