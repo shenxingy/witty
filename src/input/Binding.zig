@@ -5212,7 +5212,10 @@ test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary"
     defer s.deinit(alloc);
 
     // Mirrors the macOS defaults: the unicode `=` runs equalize_splits, and
-    // an altscreen-gated physical `=` sends tmux a layout-even-out sequence.
+    // an altscreen-gated physical `=` sends tmux's `prefix E` (C-b E =
+    // select-layout -E) to even out its panes. Sent as a single atomic write,
+    // which the prefix+key path handles reliably (the command-prompt form does
+    // not — see the Config.zig default for the end-to-end rationale).
     try s.put(
         alloc,
         .{ .key = .{ .unicode = '=' }, .mods = .{ .super = true, .ctrl = true } },
@@ -5221,7 +5224,7 @@ test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary"
     try s.putFlags(
         alloc,
         .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
-        .{ .text = "\x02:select-layout tiled\r" },
+        .{ .text = "\x02E" },
         .{ .altscreen = true },
     );
 
@@ -5233,12 +5236,12 @@ test "set: altscreen cmd+ctrl+= sends tmux even-out, equalize_splits on primary"
     };
 
     // Alternate screen (tmux): the physical altscreen binding wins and sends
-    // the even-out sequence to the pty.
+    // the even-out sequence (C-b E) to the pty.
     {
         const entry = s.getEventAltscreen(event, true).?;
         try testing.expect(entry.value_ptr.*.leaf.action == .text);
         try testing.expectEqualStrings(
-            "\x02:select-layout tiled\r",
+            "\x02E",
             entry.value_ptr.*.leaf.action.text,
         );
     }

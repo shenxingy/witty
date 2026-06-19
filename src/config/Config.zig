@@ -7122,23 +7122,35 @@ pub const Keybinds = struct {
                 .{ .equalize_splits = {} },
             );
             // On the alternate screen `equalize_splits` is a no-op for the
-            // common case of a single Ghostty surface running tmux: the
-            // real panes belong to tmux, which Ghostty can't resize. So on
-            // the alternate screen send tmux a command to even out its panes
-            // instead — the default prefix (C-b = 0x02), then the command
-            // prompt `:select-layout tiled` + Enter. The prefix is intercepted
-            // by tmux regardless of the foreground program in the pane.
+            // common case of a single Ghostty surface running tmux: the real
+            // panes belong to tmux, which Ghostty can't resize. So on the
+            // alternate screen send tmux its own "even out the panes" command
+            // instead.
+            //
+            // We send `\x02E` = the default prefix (C-b = 0x02) followed by
+            // `E`, which is tmux's built-in `prefix E` binding for
+            // `select-layout -E` (spread the current layout's panes out
+            // evenly, preserving its split structure). The prefix is
+            // intercepted by tmux regardless of the foreground program.
+            //
+            // Why the prefix+key form and NOT `\x02:select-layout -E\r` (the
+            // command prompt): Ghostty delivers a `.text` action as a SINGLE
+            // atomic pty write, and tmux's command prompt isn't ready for the
+            // bytes that follow `:` in that same read — the typed command gets
+            // dropped (verified end-to-end against real tmux). The prefix+key
+            // path acts on the whole atomic write reliably.
             //
             // This is a separate, altscreen-gated trigger on the *physical*
             // `=` key, so on the primary screen the lookup falls through to
             // the unicode `=` binding above and still runs `equalize_splits`.
             //
-            // NOTE: assumes tmux's default prefix C-b (change \x02 to \x01 for
-            // C-a). Fires on ANY alternate-screen app, not just tmux.
+            // NOTE: assumes tmux's default prefix C-b (use \x01 for C-a) and
+            // the default `E` binding. Fires on ANY alternate-screen app, not
+            // just tmux.
             try self.set.putFlags(
                 alloc,
                 .{ .key = .{ .physical = .equal }, .mods = .{ .super = true, .ctrl = true } },
-                .{ .text = "\x02:select-layout tiled\r" },
+                .{ .text = "\x02E" },
                 .{ .altscreen = true },
             );
 
