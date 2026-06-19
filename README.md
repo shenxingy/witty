@@ -34,7 +34,9 @@ Ghostty.
 - [What witty adds](#what-witty-adds)
 - [Quick example](#quick-example)
 - [How it works](#how-it-works)
+- [Recommended workflow: persistent remote dev](#recommended-workflow-persistent-remote-dev)
 - [Install](#install)
+- [Platform support](#platform-support)
 - [Built on Ghostty](#built-on-ghostty)
 - [License](#license)
 
@@ -49,6 +51,7 @@ differently depending on which one is active.
 | --- | --- |
 | **`altscreen:` keybind prefix** | Gate any binding to the **alternate screen** only. On the primary screen the lookup falls back to whatever that key was bound to before, so you lose nothing. |
 | **Default `cmd+ctrl+=` (macOS)** | On the primary screen: `equalize_splits` (balance Ghostty's own splits). On the alternate screen: send tmux `C-b E` (`select-layout -E`) so the **tmux panes** get evened out instead — because Ghostty can't resize panes that belong to tmux. |
+| **Default `cmd+left` (macOS)** | Jump to the start of the line. On the alternate screen it sends **Home** (`CSI H`) instead of C-a, so it isn't swallowed by a `C-a` tmux prefix — `cmd+left` works the same inside tmux as at a bare shell. |
 
 ## Quick example
 
@@ -81,6 +84,60 @@ already bound, which is what makes the tmux/non-tmux split clean.
 
 Full design notes, fallback semantics, and edge cases live in
 **[docs/witty-altscreen.md](docs/witty-altscreen.md)**.
+
+## Recommended workflow: persistent remote dev
+
+witty's altscreen bindings pay off most in a remote, persistent setup: keep the
+real work in **tmux on a server** and treat the local terminal as a disposable,
+reconnectable view.
+
+1. **SSH in and attach tmux** — the session lives on the server, not your laptop:
+
+   ```sh
+   ssh myserver -t 'tmux new -A -s main'
+   ```
+
+   `new -A -s main` attaches the `main` session if it exists, otherwise creates
+   it. Close the lid, drop Wi-Fi, or quit witty — the session and everything
+   running in it survive. Run the same command to reconnect and you're back
+   exactly where you left off.
+
+2. **Split panes and run Claude Code per pane** — inside tmux:
+
+   ```
+   C-a |     split left/right
+   C-a -     split top/bottom
+   claude    run Claude Code in each pane
+   ```
+
+   Each pane is an independent agent you can glance across — and it all keeps
+   running server-side if you disconnect.
+
+3. **Keep shortcuts consistent** — point tmux's pane keys at the same gestures
+   you use in Ghostty, and let witty's altscreen bindings cover the keys tmux
+   would otherwise swallow. A minimal `~/.tmux.conf`:
+
+   ```tmux
+   # screen-style prefix (closer to the home row)
+   set -g prefix C-a
+   unbind C-b
+   bind C-a send-prefix
+
+   # Ghostty-like pane navigation: Shift+Alt+arrow, no prefix needed
+   bind -n M-S-Left  select-pane -L
+   bind -n M-S-Right select-pane -R
+   bind -n M-S-Up    select-pane -U
+   bind -n M-S-Down  select-pane -D
+
+   # modern key reporting so Ghostty's modified keys arrive intact
+   set -s extended-keys always
+   ```
+
+   With this, `cmd+ctrl+=` evens out your tmux panes and `cmd+left` still jumps
+   to the line start **even though the prefix is `C-a`** — witty routes those
+   keys around the prefix on the alternate screen (see
+   [docs/witty-altscreen.md](docs/witty-altscreen.md)). Same muscle memory
+   whether or not tmux is in the loop.
 
 ## Install
 
@@ -115,6 +172,22 @@ xcodebuild -project macos/Ghostty.xcodeproj -scheme Ghostty \
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`HACKING.md`](HACKING.md) (from
 upstream) for the full developer workflow.
+
+## Platform support
+
+| Platform | witty app | Notes |
+| --- | --- | --- |
+| **macOS** (Apple Silicon) | ✅ | Primary target. The shipped altscreen defaults are macOS keybinds. |
+| **Linux** (GTK) | ✅ | Builds like upstream Ghostty. The `altscreen:` prefix works; no default binding uses it, so add your own. |
+| **Windows** | ❌ no app | Ghostty/witty have **no native Windows application** — the GUI runtimes are GTK (Linux) and SwiftUI (macOS) only. The core `libghostty` / `libghostty-vt` engine *does* compile for Windows (with ConPTY support) and can be embedded, but there is no `witty.exe` to run. |
+
+**On Windows?** The [recommended workflow](#recommended-workflow-persistent-remote-dev)
+above still works — the real session lives in **tmux on a Linux server**, and the
+local terminal is just an SSH client. Use **Windows Terminal** or a **WSL** shell
+to `ssh` in and `tmux attach`. You won't get witty's altscreen keybindings
+locally (those are a witty feature), but you can reproduce the important ones as
+Windows Terminal or tmux bindings. Everything server-side — panes, Claude Code,
+reconnect-after-disconnect — is identical.
 
 ## Built on Ghostty
 
