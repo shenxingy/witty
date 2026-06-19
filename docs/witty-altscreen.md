@@ -141,9 +141,19 @@ and are left unchanged.)
 
 ## Caveats
 
-- **Assumes tmux's default prefix `C-b`.** If you remapped your prefix to
-  `C-a`, change `\x02` to `\x01` in your binding. Other prefixes need the
-  corresponding control byte.
+- **The `cmd+ctrl+=` default assumes tmux's default prefix `C-b`.** This is the
+  one shipped default that is prefix-*dependent* — "even out panes" has to go
+  through the tmux prefix, and `\x02` is `C-b`. If you remapped your prefix
+  (e.g. screen-style `C-a`), the default `C-b E` is just sent to the shell and
+  does nothing. Override it in your Ghostty config with the matching control
+  byte (`\x01` = `C-a`, `\x02` = `C-b`, …):
+
+  ```ini
+  # ~/.config/ghostty/config — for a C-a tmux prefix
+  keybind = altscreen:super+ctrl+equal=text:\x01E   # C-a E → even tmux panes
+  ```
+
+  (`cmd+left` does **not** need this — it sends Home, which is prefix-independent.)
 - **Assumes tmux's default `E` binding** (`select-layout -E`). If you unbound or
   rebound `E` in tmux, adjust accordingly.
 - **Fires on *any* alternate-screen app, not just tmux.** The prefix only knows

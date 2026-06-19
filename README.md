@@ -133,11 +133,22 @@ reconnectable view.
    set -s extended-keys always
    ```
 
-   With this, `cmd+ctrl+=` evens out your tmux panes and `cmd+left` still jumps
-   to the line start **even though the prefix is `C-a`** — witty routes those
-   keys around the prefix on the alternate screen (see
-   [docs/witty-altscreen.md](docs/witty-altscreen.md)). Same muscle memory
-   whether or not tmux is in the loop.
+   `cmd+left` already works under **any** prefix — on the alternate screen witty
+   sends **Home** (`CSI H`), which no tmux prefix can intercept.
+
+   `cmd+ctrl+=` is different: "even out panes" *must* go through the tmux prefix,
+   and the shipped default targets tmux's **default** prefix (`C-b`). With the
+   `C-a` prefix above, the default `C-b E` never reaches tmux — add one line to
+   your Ghostty config to retarget it (and any other prefix-based keys) at `C-a`:
+
+   ```ini
+   # ~/.config/ghostty/config — use C-a (0x01) instead of the C-b default
+   keybind = altscreen:super+ctrl+equal=text:\x01E   # C-a E → even tmux panes
+   ```
+
+   See [docs/witty-altscreen.md](docs/witty-altscreen.md) for the prefix caveat
+   and more bindings you can mirror this way. Same muscle memory whether or not
+   tmux is in the loop.
 
 ## Install
 
