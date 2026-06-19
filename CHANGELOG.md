@@ -6,7 +6,7 @@ documented here. Upstream Ghostty changes are not duplicated; see
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [witty-v0.1.1] — 2026-06-19
 
 ### Fixed
 
@@ -17,6 +17,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   still "beginning of line" in readline/zle. On the primary screen it still
   falls back to C-a. (`cmd+right`/`cmd+backspace`/`alt+left`/`alt+right` were
   unaffected — they don't use the prefix byte.)
+
+### Docs
+
+- Added a "Recommended workflow" (persistent remote dev over ssh + tmux) and a
+  "Platform support" section (including Windows) to the README.
+- Clarified that the `cmd+ctrl+=` default is prefix-*dependent* (targets the
+  C-b default prefix) and documented the one-line override for other prefixes
+  such as `C-a`.
+
+### Internal
+
+- `cmd+ctrl+=` is now encoded as the escaped `\x02E` form to match the
+  surrounding natural-text-editing bindings (identical bytes on the wire).
 
 ## [witty-v0.1.0] — 2026-06-19
 
@@ -59,4 +72,5 @@ d972d63 fix(input): altscreen gate continues the trigger chain instead of aborti
 8103116 feat(input): add altscreen: keybind prefix
 ```
 
+[witty-v0.1.1]: https://github.com/shenxingy/witty/releases/tag/witty-v0.1.1
 [witty-v0.1.0]: https://github.com/shenxingy/witty/releases/tag/witty-v0.1.0
