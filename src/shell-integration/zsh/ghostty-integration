@@ -101,6 +101,17 @@ _ghostty_deferred_init() {
         # Don't write OSC 133 D when our precmd handler is invoked from zle.
         # Some plugins do that to update prompt on cd.
         if ! builtin zle; then
+            # Clear any mouse tracking left enabled by the last command. A
+            # full-screen app that dies without restoring state (e.g. tmux
+            # over an SSH connection that drops) leaves mouse reporting on,
+            # so every mouse move is then reported as garbage at the prompt.
+            # A fresh interactive prompt never wants mouse reporting, so it's
+            # safe to disable all tracking event + format modes here. This
+            # only runs in the directly-spawned shell, never inside tmux/ssh
+            # panes (which don't get this integration), so it can't disable a
+            # multiplexer's own mouse mode.
+            builtin print -nu $_ghostty_fd '\e[?9;1000;1002;1003;1005;1006;1015;1016l'
+
             # This code works incorrectly in the presence of a precmd or chpwd
             # hook that prints. For example, sindresorhus/pure prints an empty
             # line on precmd and marlonrichert/zsh-snap prints $PWD on chpwd.

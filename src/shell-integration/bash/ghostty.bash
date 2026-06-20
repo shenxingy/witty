@@ -188,6 +188,15 @@ function __ghostty_precmd() {
     builtin printf "\e]133;A;redraw=last;cl=line;aid=%s\a" "$BASHPID"
   fi
 
+  # Clear any mouse tracking left enabled by the last command. A full-screen
+  # app that dies without restoring state (e.g. tmux over an SSH connection
+  # that drops) leaves mouse reporting on, so every mouse move is reported as
+  # garbage at the prompt. A fresh interactive prompt never wants mouse
+  # reporting, so disabling all tracking event + format modes here is safe.
+  # This only runs in the directly-spawned shell, never inside tmux/ssh panes,
+  # so it can't disable a multiplexer's own mouse mode.
+  builtin printf "\e[?9;1000;1002;1003;1005;1006;1015;1016l"
+
   # unfortunately bash provides no hooks to detect cwd changes
   # in particular this means cwd reporting will not happen for a
   # command like cd /test && cat. PS0 is evaluated before cd is run.

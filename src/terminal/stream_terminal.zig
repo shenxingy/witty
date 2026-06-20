@@ -833,6 +833,29 @@ test "modes" {
     try testing.expect(t.modes.get(.wraparound));
 }
 
+test "mouse tracking reset clears stuck event and format" {
+    // Regression: when a full-screen app (e.g. tmux over SSH) dies without
+    // restoring terminal state, mouse tracking stays enabled locally and the
+    // shell reports every mouse move as garbage at the prompt. The shell
+    // integration emits this combined DECRST on each new prompt to clear the
+    // stuck state; verify the exact sequence fully resets both event + format.
+    var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
+    defer t.deinit(testing.allocator);
+
+    var s: Stream = .initAlloc(testing.allocator, .init(&t));
+    defer s.deinit();
+
+    // What a TUI like tmux leaves enabled: any-event tracking + SGR encoding.
+    s.nextSlice("\x1B[?1003;1006h");
+    try testing.expect(t.flags.mouse_event == .any);
+    try testing.expect(t.flags.mouse_format == .sgr);
+
+    // The reset emitted by the shell-integration precmd hooks.
+    s.nextSlice("\x1B[?9;1000;1002;1003;1005;1006;1015;1016l");
+    try testing.expect(t.flags.mouse_event == .none);
+    try testing.expect(t.flags.mouse_format == .x10);
+}
+
 test "scrolling regions" {
     var t: Terminal = try .init(testing.allocator, .{ .cols = 80, .rows = 24 });
     defer t.deinit(testing.allocator);

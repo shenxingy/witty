@@ -143,6 +143,16 @@ function __ghostty_setup --on-event fish_prompt -d "Setup ghostty integration"
 
         set --global __ghostty_prompt_state prompt-start
         echo -en $__ghostty_prompt_start_mark
+
+        # Clear any mouse tracking left enabled by the last command. A
+        # full-screen app that dies without restoring state (e.g. tmux over an
+        # SSH connection that drops) leaves mouse reporting on, so every mouse
+        # move is reported as garbage at the prompt. A fresh interactive prompt
+        # never wants mouse reporting, so disabling all tracking event + format
+        # modes here is safe. This only runs in the directly-spawned shell,
+        # never inside tmux/ssh panes, so it can't disable a multiplexer's own
+        # mouse mode.
+        echo -en "\e[?9;1000;1002;1003;1005;1006;1015;1016l"
     end
 
     function __ghostty_mark_output_start --on-event fish_preexec
