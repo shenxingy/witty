@@ -3137,11 +3137,20 @@ pub fn switchScreenMode(
         },
     }
 
-    // witty (fork): leaving the alternate screen means any tmux client that
-    // was driving it is gone, so clear the tmux_active signal. This keeps a
-    // stale value from making the `altscreen:` keybinds fire inside a later
-    // non-tmux fullscreen app (vim/less/Claude Code) on the alt screen.
-    if (!enabled) self.modes.set(.tmux_active, false);
+    // witty (fork): the tmux_active signal must reflect ONLY a tmux client that
+    // announced itself (CSI ?8771h) AFTER the current alt-screen session began.
+    // Clear it on every real screen transition:
+    //   - leaving the alt screen: the tmux client that was driving it is gone, so
+    //     a stale value can't make `altscreen:` keybinds fire inside a later
+    //     non-tmux fullscreen app on the alt screen;
+    //   - entering the alt screen: a stale/spoofed ?8771h set while on the primary
+    //     screen must not leak into a non-tmux fullscreen app run directly
+    //     (vim/less/Claude Code over plain SSH). Real tmux re-announces ?8771h from
+    //     its inner shell's first prompt right after entering, so the gate re-arms
+    //     on its own — at the cost of at most the pre-first-prompt window.
+    // Gate the enter case on an actual transition (`old_ != null`) so a 1049h
+    // re-issued while already on the alt screen doesn't drop a live tmux signal.
+    if (!enabled or old_ != null) self.modes.set(.tmux_active, false);
 }
 
 /// Modal screen changes. These map to the literal terminal
@@ -12598,6 +12607,32 @@ test "Terminal: tmux_active mode is cleared when leaving the alternate screen" {
     t.modes.set(.tmux_active, true);
     try t.switchScreenMode(.@"1047", false);
     try testing.expect(!t.modes.get(.tmux_active));
+}
+
+test "Terminal: tmux_active mode is cleared when entering the alternate screen" {
+    // witty (fork): a stale/spoofed CSI ?8771h set while on the primary screen
+    // must not leak into a non-tmux fullscreen app run directly (vim/less/Claude
+    // Code over plain SSH). Entering the alt screen clears it; real tmux
+    // re-announces ?8771h from its inner prompt right after entry, so the gate
+    // re-arms on its own.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 3, .rows = 2 });
+    defer t.deinit(alloc);
+
+    // Stale signal set while still on the primary screen.
+    try testing.expect(t.screens.active_key == .primary);
+    t.modes.set(.tmux_active, true);
+    try testing.expect(t.modes.get(.tmux_active));
+
+    // Entering the alternate screen must clear the stale signal.
+    try t.switchScreenMode(.@"1049", true);
+    try testing.expect(!t.modes.get(.tmux_active));
+
+    // A tmux client announcing itself AFTER entry re-arms the gate, and a 1049h
+    // re-issued while already on the alt screen must NOT drop it (no transition).
+    t.modes.set(.tmux_active, true);
+    try t.switchScreenMode(.@"1049", true);
+    try testing.expect(t.modes.get(.tmux_active));
 }
 
 test "Terminal: tmux_active toggled by CSI ?8771 h/l" {
