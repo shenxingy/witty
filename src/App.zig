@@ -337,7 +337,14 @@ pub fn keyEvent(
 
     // Get the keybind entry for this event. We don't support key sequences
     // so we can look directly in the top-level set.
-    const entry = rt_app.config.keybind.set.getEvent(event) orelse return false;
+    //
+    // witty (fork): pass altscreen=false. At the app scope there is no single
+    // surface/terminal, so we can't know whether we're on a tmux alt screen;
+    // looking up with altscreen=true would make `altscreen:`-gated bindings
+    // (e.g. a user's `global:altscreen:...`) fire app-globally as if tmux were
+    // always active. A gated binding resolves to its fallback (or nothing) here;
+    // the focused Surface re-runs the lookup with the real gate state.
+    const entry = rt_app.config.keybind.set.getEventAltscreen(event, false) orelse return false;
     const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
         // Sequences aren't supported. Our configuration parser verifies
         // this for global keybinds but we may still get an entry for
