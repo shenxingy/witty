@@ -15,6 +15,7 @@ caveats you should know.
 - [The `cmd+ctrl+=` default](#the-cmdctrl-default)
 - [Why `C-b E` and not `:select-layout`](#why-c-b-e-and-not-select-layout)
 - [The `cmd+left` default](#the-cmdleft-default)
+- [Gating on real tmux](#gating-on-real-tmux-not-just-the-alternate-screen)
 - [Caveats](#caveats)
 - [Examples](#examples)
 
@@ -139,6 +140,68 @@ This fix is **prefix-independent**: it works whether your tmux prefix is `C-a`,
 `alt+←/→` word motions don't use the prefix byte, so they already work in tmux
 and are left unchanged.)
 
+## Gating on real tmux (not just the alternate screen)
+
+The alternate screen is shared by tmux, `vim`, `less`, `htop`, Claude Code, and
+every other fullscreen TUI. The terminal can't tell them apart from the byte
+stream — there is no "I am tmux" beacon. So witty gates `altscreen:` bindings on
+a second condition: a private DEC mode, **`?8771`** (`tmux_active`), that tmux
+itself turns on.
+
+- A binding with the `altscreen:` prefix fires only when the terminal is on the
+  alternate screen **AND** `?8771` is set.
+- witty **auto-clears** `?8771` whenever it leaves the alternate screen, so a
+  stale value can't leak into the next TUI.
+- If `?8771` is never set, `altscreen:` bindings never fire and every key keeps
+  its normal binding everywhere. Setting up the signal is opt-in.
+
+### Setting the signal from your shell
+
+tmux passes unknown escapes to the outer terminal only through its
+**passthrough** wrapper, and only if `allow-passthrough` is on:
+
+```tmux
+# ~/.tmux.conf
+set -g allow-passthrough on
+```
+
+Then have your shell announce tmux on every prompt. For zsh:
+
+```zsh
+# ~/.zshrc
+_witty_tmux_signal() {
+  if [[ -n "$TMUX" ]]; then
+    # inside tmux: wrap in tmux passthrough so it reaches the outer terminal
+    printf '\033Ptmux;\033\033[?8771h\033\\'
+  else
+    printf '\033[?8771l'
+  fi
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _witty_tmux_signal
+```
+
+For bash, append the equivalent to `PROMPT_COMMAND`:
+
+```bash
+# ~/.bashrc
+_witty_tmux_signal() {
+  if [[ -n "$TMUX" ]]; then printf '\033Ptmux;\033\033[?8771h\033\\'
+  else printf '\033[?8771l'; fi
+}
+PROMPT_COMMAND="_witty_tmux_signal${PROMPT_COMMAND:+; $PROMPT_COMMAND}"
+```
+
+This works the same locally and over SSH: the bytes ride the tmux output stream
+through `ssh` to the outer witty, which sets the mode. Install the snippet on
+every host where you run tmux (including remote boxes). On a non-witty terminal
+the escape is an unknown mode and is harmlessly ignored.
+
+> Note: the signal is sticky between prompts — while a long-running fullscreen
+> program (e.g. Claude Code) runs inside a tmux pane, `?8771` stays set from the
+> last prompt, so `cmd+d` keeps driving tmux. It only clears when the outer
+> terminal leaves the alternate screen (tmux detaches/exits).
+
 ## Caveats
 
 - **The `cmd+ctrl+=` default assumes tmux's default prefix `C-b`.** This is the
@@ -156,11 +219,15 @@ and are left unchanged.)
   (`cmd+left` does **not** need this — it sends Home, which is prefix-independent.)
 - **Assumes tmux's default `E` binding** (`select-layout -E`). If you unbound or
   rebound `E` in tmux, adjust accordingly.
-- **Fires on *any* alternate-screen app, not just tmux.** The prefix only knows
-  "alternate screen," not "tmux specifically." Pressing the default inside
-  `vim`/`less` sends `C-b E` (a harmless page-up + word-motion there), not a
-  tmux command. Bind alternate-screen overrides to keys you won't fat-finger in
-  other TUIs.
+- **`altscreen:` now requires tmux to actually be running** (see
+  [Gating on real tmux](#gating-on-real-tmux-not-just-the-alternate-screen)).
+  Originally the prefix fired on *any* alternate-screen app, which meant
+  pressing `cmd+d` inside `vim`/`less`/Claude Code sent tmux bytes into that
+  app instead of splitting. The gate is now `alternate screen` **AND** the
+  `tmux_active` signal, so outside tmux these keys fall back to their normal
+  binding (e.g. `cmd+d` performs a native witty split). If you do **not** set
+  up the signal, the `altscreen:` keys simply never fire and you keep the
+  native bindings everywhere — a safe default.
 - **Linux/GTK:** the prefix works the same, but witty ships no default binding
   that uses it on Linux — add your own.
 
