@@ -297,6 +297,16 @@ const entries: []const ModeEntry = &.{
     .{ .name = "grapheme_cluster", .value = 2027 },
     .{ .name = "report_color_scheme", .value = 2031 },
     .{ .name = "in_band_size_reports", .value = 2048 },
+
+    // witty (fork): set true while a tmux client is attached. This is NOT a
+    // standard DEC mode — it is a private signal that a tmux session emits
+    // from its shell (CSI ?8771h on a prompt, CSI ?8771l on exit), forwarded
+    // to this outer terminal through tmux's passthrough. The `altscreen:`
+    // keybind prefix gates on this so its tmux control sequences only fire
+    // inside real tmux, not inside other fullscreen apps (vim/less/Claude
+    // Code) that also use the alternate screen. Auto-cleared when the
+    // terminal leaves the alternate screen (see Terminal.switchScreenMode).
+    .{ .name = "tmux_active", .value = 8771 },
 };
 
 test {

@@ -2617,8 +2617,8 @@ pub fn keyEventIsBinding(
         .press, .repeat => {},
     }
 
-    // Whether the alternate screen is active gates `altscreen:` bindings.
-    const altscreen = self.terminalIsAltScreen();
+    // Whether `altscreen:` bindings are active (alt screen + tmux detected).
+    const altscreen = self.altScreenKeybindsActive();
 
     // Look up our entry
     const entry: input.Binding.Set.Entry = entry: {
@@ -2651,13 +2651,19 @@ pub fn keyEventIsBinding(
     };
 }
 
-/// Returns true if the terminal for this surface is currently showing
-/// the alternate screen (used by full-screen terminal applications
-/// such as tmux, vim, or less).
-fn terminalIsAltScreen(self: *Surface) bool {
+/// Returns true if `altscreen:`-prefixed keybinds should be active for this
+/// surface. This requires BOTH that the terminal is on the alternate screen
+/// AND that a tmux client has announced itself via the tmux_active private
+/// mode (see terminal/modes.zig). Gating on tmux specifically — rather than
+/// on any alternate-screen program — keeps tmux control sequences from
+/// firing inside vim/less/Claude Code, which also use the alternate screen
+/// but are not tmux. Outside tmux a gated binding resolves to the binding it
+/// replaced, so e.g. cmd+d still performs a native witty split.
+fn altScreenKeybindsActive(self: *Surface) bool {
     self.renderer_state.mutex.lock();
     defer self.renderer_state.mutex.unlock();
-    return self.io.terminal.screens.active_key == .alternate;
+    return self.io.terminal.screens.active_key == .alternate and
+        self.io.terminal.modes.get(.tmux_active);
 }
 
 /// Called for any key events. This handles keybindings, encoding and
@@ -2882,10 +2888,11 @@ fn maybeHandleBinding(
         .press, .repeat => {},
     }
 
-    // Whether the alternate screen is active; `altscreen:`-prefixed
-    // bindings only match while it is, resolving to the binding they
-    // replaced (or to nothing) otherwise.
-    const altscreen = self.terminalIsAltScreen();
+    // Whether `altscreen:`-prefixed bindings are active: the terminal is on
+    // the alternate screen AND a tmux client announced itself (tmux_active).
+    // When inactive a gated binding resolves to the binding it replaced (or
+    // to nothing), so cmd+d etc. still split natively outside tmux.
+    const altscreen = self.altScreenKeybindsActive();
 
     // Find an entry in the keybind set that matches our event.
     const entry: input.Binding.Set.Entry = entry: {

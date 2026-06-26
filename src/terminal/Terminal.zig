@@ -3136,6 +3136,12 @@ pub fn switchScreenMode(
             self.restoreCursor();
         },
     }
+
+    // witty (fork): leaving the alternate screen means any tmux client that
+    // was driving it is gone, so clear the tmux_active signal. This keeps a
+    // stale value from making the `altscreen:` keybinds fire inside a later
+    // non-tmux fullscreen app (vim/less/Claude Code) on the alt screen.
+    if (!enabled) self.modes.set(.tmux_active, false);
 }
 
 /// Modal screen changes. These map to the literal terminal
@@ -12568,6 +12574,48 @@ test "Terminal: cursorIsAtPrompt alternate screen" {
     try testing.expect(!t.cursorIsAtPrompt());
     try t.semanticPrompt(.init(.prompt_start));
     try testing.expect(!t.cursorIsAtPrompt());
+}
+
+test "Terminal: tmux_active mode is cleared when leaving the alternate screen" {
+    // witty (fork): the `altscreen:` keybind gate depends on tmux_active being
+    // cleared once tmux is gone, otherwise its sequences would fire inside a
+    // later non-tmux fullscreen app on the alt screen.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 3, .rows = 2 });
+    defer t.deinit(alloc);
+
+    // Enter the alternate screen (tmux) and have it announce itself.
+    try t.switchScreenMode(.@"1049", true);
+    t.modes.set(.tmux_active, true);
+    try testing.expect(t.modes.get(.tmux_active));
+
+    // Leaving the alternate screen must clear it.
+    try t.switchScreenMode(.@"1049", false);
+    try testing.expect(!t.modes.get(.tmux_active));
+
+    // The legacy alt-screen modes (47/1047) clear it too.
+    try t.switchScreenMode(.@"1047", true);
+    t.modes.set(.tmux_active, true);
+    try t.switchScreenMode(.@"1047", false);
+    try testing.expect(!t.modes.get(.tmux_active));
+}
+
+test "Terminal: tmux_active toggled by CSI ?8771 h/l" {
+    // witty (fork): the tmux client sets/clears this via the raw escape
+    // (forwarded through tmux passthrough). Verify the byte sequence maps to
+    // the mode end-to-end through the VT stream.
+    const alloc = testing.allocator;
+    var t = try init(alloc, .{ .cols = 10, .rows = 5 });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+
+    try testing.expect(!t.modes.get(.tmux_active));
+    s.nextSlice("\x1b[?8771h");
+    try testing.expect(t.modes.get(.tmux_active));
+    s.nextSlice("\x1b[?8771l");
+    try testing.expect(!t.modes.get(.tmux_active));
 }
 
 test "Terminal: fullReset with a non-empty pen" {
