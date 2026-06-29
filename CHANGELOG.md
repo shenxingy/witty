@@ -6,7 +6,13 @@ documented here. Upstream Ghostty changes are not duplicated; see
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [witty-v0.1.2] — 2026-06-29
+
+Synced with upstream Ghostty at `28f9367be` (2026-06-29) — 29 commits since the
+previous fork point, including a GTK dbus-connection crash fix, a macOS
+notification retain-cycle fix, a `PageList.scroll` row-offset type fix, a
+macOS 27 tabs-frame fix, and the new `gtk-horizontal-tab-scroll` option. None of
+the witty altscreen/`?8771` logic was touched by the merge.
 
 ### Added
 
