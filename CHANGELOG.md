@@ -16,6 +16,14 @@ the witty altscreen/`?8771` logic was touched by the merge.
 
 ### Added
 
+- **witty now ships its own app identity.** The macOS app presents as **Witty**
+  — menu bar, Dock, About, Finder, and the "New Witty Tab/Window Here" service
+  menus — with a custom violet **W** app icon, instead of masquerading as
+  Ghostty. The bundle identifier (`com.mitchellh.ghostty`), config directory
+  (`~/.config/ghostty`), and the `ghostty` CLI are intentionally unchanged, so
+  your existing config carries over and upstream merges stay trivial. The icon
+  reuses Ghostty's Icon Composer frame with a witty glyph + violet colorway
+  (source in `images/witty-icon-src/`).
 - **`altscreen:` keybinds now require *real* tmux, not just the alternate
   screen.** The alternate screen is shared by tmux, Neovim, `less`, `htop`,
   Claude Code, and every other fullscreen TUI, so firing tmux control bytes at

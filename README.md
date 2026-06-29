@@ -172,9 +172,10 @@ reconnectable view.
 witty is currently macOS-focused (the shipped default binding is macOS). Linux
 (GTK) builds the same way as upstream Ghostty.
 
-**Prebuilt macOS app** — grab the latest `Ghostty.app` (Apple Silicon,
+**Prebuilt macOS app** — grab the latest `Witty.app` (Apple Silicon,
 ad-hoc signed) from the [Releases](https://github.com/shenxingy/witty/releases)
-page, unzip, and drop it into `/Applications`.
+page, unzip, and drop it into `/Applications`. (The app installs the same
+`ghostty` CLI and reads `~/.config/ghostty`, so existing config just works.)
 
 **Build from source** — requires [Zig](https://ziglang.org) `0.15.2` (see
 `.zig-version` / `minimum_zig_version` in `build.zig.zon`):
