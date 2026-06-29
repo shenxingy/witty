@@ -150,8 +150,10 @@ itself turns on.
 
 - A binding with the `altscreen:` prefix fires only when the terminal is on the
   alternate screen **AND** `?8771` is set.
-- witty **auto-clears** `?8771` whenever it leaves the alternate screen, so a
-  stale value can't leak into the next TUI.
+- witty **auto-clears** `?8771` whenever it enters *or* leaves the alternate
+  screen, so a stale value can't leak into the next TUI. Real tmux re-asserts it
+  right after entry — from the inner shell's first prompt for a fresh session,
+  and from the `client-attached` hook above when re-attaching to an existing one.
 - If `?8771` is never set, `altscreen:` bindings never fire and every key keeps
   its normal binding everywhere. Setting up the signal is opt-in.
 
@@ -163,6 +165,15 @@ tmux passes unknown escapes to the outer terminal only through its
 ```tmux
 # ~/.tmux.conf
 set -g allow-passthrough on
+
+# Re-assert the signal on every (re)attach. witty clears ?8771 when the outer
+# terminal enters the alternate screen, which a tmux client does on attach. On
+# `tmux new -As <name>` re-attaching to an existing session the inner shell
+# stays at its already-drawn prompt, so the per-prompt hook below never re-fires
+# — without this the keybinds go dead until the next Enter. The hook writes
+# ?8771h straight to the attaching client's tty (raw, not passthrough-wrapped,
+# since it bypasses tmux), and fires after tmux's smcup so it survives the clear.
+set-hook -g client-attached 'run-shell -b "printf \"\\033[?8771h\" > #{client_tty}"'
 ```
 
 Then have your shell announce tmux on every prompt. For zsh:
