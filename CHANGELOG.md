@@ -6,6 +6,54 @@ documented here. Upstream Ghostty changes are not duplicated; see
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+
+- **`altscreen:` keybinds now require *real* tmux, not just the alternate
+  screen.** The alternate screen is shared by tmux, Neovim, `less`, `htop`,
+  Claude Code, and every other fullscreen TUI, so firing tmux control bytes at
+  all of them was wrong (e.g. `cmd+ctrl+=` leaking `C-b E` into Neovim). An
+  `altscreen:` binding now fires only when the terminal is on the alternate
+  screen **AND** a private DEC mode, **`?8771`** (`tmux_active`), is set. tmux
+  announces itself by setting `?8771` from the shell prompt (through its
+  passthrough); witty clears it on every alternate-screen transition so a stale
+  value can't leak into the next TUI. If you don't set up the signal, the
+  `altscreen:` keys simply never fire and every key keeps its normal binding —
+  a safe, opt-in default. See
+  [`docs/witty-altscreen.md`](docs/witty-altscreen.md#gating-on-real-tmux-not-just-the-alternate-screen)
+  for the one-time `~/.tmux.conf` + shell setup.
+
+### Fixed
+
+- **`?8771` is re-armed on tmux *re-attach*.** witty clears the signal when the
+  outer terminal enters the alternate screen, which a tmux client does on every
+  attach. With `tmux new -As <name>` re-attaching to an existing session, the
+  inner shell stays at its already-drawn prompt, so the per-prompt shell hook
+  never re-fires and the `altscreen:` keybinds went dead until the next Enter.
+  The documented setup now adds a tmux `client-attached` hook that re-emits
+  `?8771h` straight to the attaching client's tty on every attach (raw, not
+  passthrough-wrapped, since it bypasses tmux; it fires after tmux's smcup so it
+  survives the enter-screen clear).
+- **`?8771` is cleared on alternate-screen *entry* too, not only exit.** A
+  stale or spoofed `?8771h` set while on the primary screen can no longer leak
+  into a non-tmux fullscreen app launched directly (vim/less/Claude Code over
+  plain SSH). Real tmux re-asserts the signal right after entry, so the gate
+  re-arms on its own.
+- **App-scope keybinds are looked up with `altscreen=false` so the tmux gate
+  isn't bypassed.** Otherwise an app-scope lookup could match an `altscreen:`
+  binding without the gate, firing tmux bytes outside tmux.
+- **Stuck mouse tracking is cleared at each new shell prompt.** A fullscreen
+  program that exited without disabling mouse reporting no longer leaves the
+  shell in a state where clicks emit escape sequences.
+
+### Docs
+
+- Documented the `?8771` (`tmux_active`) gating, the `~/.tmux.conf` +
+  shell-prompt setup, and the `client-attached` re-attach hook in
+  [`docs/witty-altscreen.md`](docs/witty-altscreen.md), and folded the signal
+  setup into the README's recommended remote-tmux workflow.
+
 ## [witty-v0.1.1] — 2026-06-19
 
 ### Fixed

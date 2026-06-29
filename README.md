@@ -136,7 +136,19 @@ reconnectable view.
 
    # modern key reporting so Ghostty's modified keys arrive intact
    set -s extended-keys always
+
+   # tell witty a real tmux is live so altscreen: keybinds fire, and re-arm that
+   # signal on every (re)attach — step 1's `tmux new -A` re-attaches an existing
+   # session without redrawing a prompt, which would otherwise leave the keys dead
+   set -g allow-passthrough on
+   set-hook -g client-attached 'run-shell -b "printf \"\\033[?8771h\" > #{client_tty}"'
    ```
+
+   Pair the tmux config above with the matching **per-prompt shell signal** (a
+   few lines in `~/.zshrc`/`~/.bashrc`) — see
+   [docs/witty-altscreen.md](docs/witty-altscreen.md#setting-the-signal-from-your-shell).
+   Without the signal, the `altscreen:` keybinds never fire and every key keeps
+   its normal binding (a safe, opt-in default).
 
    `cmd+left` already works under **any** prefix — on the alternate screen witty
    sends **Home** (`CSI H`), which no tmux prefix can intercept.
