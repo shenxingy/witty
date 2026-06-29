@@ -3147,7 +3147,10 @@ pub fn switchScreenMode(
     //     screen must not leak into a non-tmux fullscreen app run directly
     //     (vim/less/Claude Code over plain SSH). Real tmux re-announces ?8771h from
     //     its inner shell's first prompt right after entering, so the gate re-arms
-    //     on its own — at the cost of at most the pre-first-prompt window.
+    //     on its own — at the cost of at most the pre-first-prompt window. (When
+    //     *re-attaching* to an existing session no fresh prompt is drawn, so that
+    //     re-announce instead comes from a tmux `client-attached` hook that writes
+    //     ?8771h to the client tty; see docs/witty-altscreen.md.)
     // Gate the enter case on an actual transition (`old_ != null`) so a 1049h
     // re-issued while already on the alt screen doesn't drop a live tmux signal.
     if (!enabled or old_ != null) self.modes.set(.tmux_active, false);
